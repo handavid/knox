@@ -44,6 +44,7 @@ import org.apache.directory.api.ldap.model.message.SearchScope;
 import org.apache.directory.api.ldap.model.name.Dn;
 import org.apache.directory.api.ldap.model.schema.SchemaManager;
 import org.apache.directory.ldap.client.api.LdapConnection;
+import org.apache.directory.ldap.client.api.LdapConnectionConfig;
 import org.apache.directory.server.core.api.CoreSession;
 import org.apache.directory.server.core.api.DirectoryService;
 import org.apache.directory.server.core.api.InstanceLayout;
@@ -300,6 +301,67 @@ public class LdapProxyBackendTest {
         validateMemberOf(entry, Set.of(
                 "cn=groupMemberOf1,ou=groups,dc=proxy,dc=com",
                 "cn=groupMemberOf2,ou=groups,dc=proxy,dc=com"));
+    }
+
+    @Test
+    public void testVerifyHostnameEnabledByDefault() throws Exception {
+        // No verifyHostname key: endpoint identification stays at the directory-api default
+        // ("LDAPS"), so the backend verifies the remote certificate's hostname/SAN.
+        Map<String, String> config = new HashMap<>(ldapBackendConfig);
+        config.put("useSsl", "true");
+        ldapProxyBackend = new LdapProxyBackend("testbackend", config);
+
+        LdapConnectionConfig connectionConfig = new LdapConnectionConfig();
+        ldapProxyBackend.applySslConfiguration(connectionConfig);
+
+        assertTrue(connectionConfig.isUseSsl());
+        assertEquals("LDAPS", connectionConfig.getSslEndpointIdentificationAlgorithm());
+    }
+
+    @Test
+    public void testVerifyHostnameExplicitlyEnabled() throws Exception {
+        Map<String, String> config = new HashMap<>(ldapBackendConfig);
+        config.put("useSsl", "true");
+        config.put("verifyHostname", "true");
+        ldapProxyBackend = new LdapProxyBackend("testbackend", config);
+
+        LdapConnectionConfig connectionConfig = new LdapConnectionConfig();
+        ldapProxyBackend.applySslConfiguration(connectionConfig);
+
+        assertTrue(connectionConfig.isUseSsl());
+        assertEquals("LDAPS", connectionConfig.getSslEndpointIdentificationAlgorithm());
+    }
+
+    @Test
+    public void testVerifyHostnameDisabledSkipsEndpointIdentification() throws Exception {
+        // verifyHostname=false clears the endpoint identification algorithm so the backend
+        // skips the hostname/SAN check; chain/trust validation via trust managers still runs.
+        Map<String, String> config = new HashMap<>(ldapBackendConfig);
+        config.put("useSsl", "true");
+        config.put("verifyHostname", "false");
+        ldapProxyBackend = new LdapProxyBackend("testbackend", config);
+
+        LdapConnectionConfig connectionConfig = new LdapConnectionConfig();
+        ldapProxyBackend.applySslConfiguration(connectionConfig);
+
+        assertTrue(connectionConfig.isUseSsl());
+        assertNull(connectionConfig.getSslEndpointIdentificationAlgorithm());
+    }
+
+    @Test
+    public void testVerifyHostnameIgnoredWithoutSsl() throws Exception {
+        // Without SSL the flag is inert: applySslConfiguration returns early, leaving the
+        // connection config untouched (no SSL, default endpoint identification).
+        Map<String, String> config = new HashMap<>(ldapBackendConfig);
+        config.put("useSsl", "false");
+        config.put("verifyHostname", "false");
+        ldapProxyBackend = new LdapProxyBackend("testbackend", config);
+
+        LdapConnectionConfig connectionConfig = new LdapConnectionConfig();
+        ldapProxyBackend.applySslConfiguration(connectionConfig);
+
+        assertFalse(connectionConfig.isUseSsl());
+        assertEquals("LDAPS", connectionConfig.getSslEndpointIdentificationAlgorithm());
     }
 
     @Test

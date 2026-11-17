@@ -19,6 +19,7 @@ package org.apache.knox.gateway.services.ldap.backend;
 
 import static java.util.Locale.ROOT;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.directory.api.ldap.model.cursor.CursorException;
 import org.apache.directory.api.ldap.model.cursor.EntryCursor;
@@ -127,6 +128,7 @@ public class LdapProxyBackend implements LdapBackend {
     // Secure transport configuration for the connection to the remote LDAP server
     private final boolean useSsl;                  // LDAPS (implicit TLS)
     private final boolean trustAllCertificates;    // skip certificate validation (test/dev only)
+    private final boolean verifyHostname;          // verify backend cert identity (hostname) during TLS handshake
     private final String trustStorePath;
     private final String trustStoreType;
     private final String trustStorePassword;
@@ -224,6 +226,7 @@ public class LdapProxyBackend implements LdapBackend {
         final boolean ldapsFromUrl = ldapUrl != null && ldapUrl.toLowerCase(Locale.ROOT).startsWith("ldaps://");
         useSsl = Boolean.parseBoolean(config.getOrDefault("useSsl", String.valueOf(ldapsFromUrl)));
         trustAllCertificates = Boolean.parseBoolean(config.getOrDefault("trustAllCertificates", "false"));
+        verifyHostname = Boolean.parseBoolean(config.getOrDefault("verifyHostname", "true"));
         trustStorePath = config.get("trustStore");
         trustStoreType = config.getOrDefault("trustStoreType", KeyStore.getDefaultType());
         trustStorePassword = config.get("trustStorePassword");
@@ -243,7 +246,8 @@ public class LdapProxyBackend implements LdapBackend {
                               (useMemberOf ? " using memberOf lookups" : " using group searches") +
                               (recursiveGroupResolution ? " with recursive group resolution (max depth: " + recursiveGroupResolutionMaxDepth + ")" : "") +
                               (useSsl ? " over LDAPS" : "") +
-                              ((useSsl && trustAllCertificates) ? " (certificate validation disabled)" : ""));
+                              ((useSsl && trustAllCertificates) ? " (certificate validation disabled)" : "") +
+                              ((useSsl && !verifyHostname) ? " (hostname verification disabled)" : ""));
 
         // Initialize connection pool
         initializeConnectionPool(config);
@@ -354,12 +358,21 @@ public class LdapProxyBackend implements LdapBackend {
      * pooled search connections and the short-lived authentication (bind) connection so both
      * talk to the remote server over the same secure transport.
      */
-    private void applySslConfiguration(LdapConnectionConfig connectionConfig) {
+    @VisibleForTesting
+    void applySslConfiguration(LdapConnectionConfig connectionConfig) {
         if (!useSsl) {
             return;
         }
         connectionConfig.setUseSsl(true);
         connectionConfig.setTrustManagers(buildTrustManagers());
+        if (!verifyHostname) {
+            // Disable TLS endpoint identification (hostname verification) on the backend
+            // connection. Chain/trust validation via the trust managers above still applies;
+            // only the server-identity (SAN/CN) match is skipped. Mirrors the JNDI login
+            // path's -Dcom.sun.jndi.ldap.object.disableEndpointIdentification=true. The
+            // directory-api default algorithm is "LDAPS"; null disables the check.
+            connectionConfig.setSslEndpointIdentificationAlgorithm(null);
+        }
         if (sslProtocol != null && !sslProtocol.isEmpty()) {
             connectionConfig.setSslProtocol(sslProtocol);
         }

@@ -259,6 +259,7 @@ The proxy backend delegates lookups to a remote LDAP or Active Directory server.
 | `gateway.ldap.interceptor.<name>.url` | N/A | Remote LDAP URL (e.g., `ldap://remote-host:389`). |
 | `gateway.ldap.interceptor.<name>.host` | N/A | Host of remote LDAP (used if `url` is not provided). |
 | `gateway.ldap.interceptor.<name>.port` | N/A | Port of remote LDAP (used if `url` is not provided). |
+| `gateway.ldap.interceptor.<name>.verifyHostname` | `true` | For an LDAPS backend, verify that the remote server certificate's hostname/SAN matches the host being connected to. Set to `false` to skip only the hostname (endpoint-identity) check; the certificate chain is still validated against the trust store. Use when the backend is reached by an IP, or by a name the certificate does not assert. No effect on a plain `ldap://` (non-TLS) connection. |
 | `gateway.ldap.interceptor.<name>.baseDn` | N/A | **Required**. The base DN of the LDAP proxy server. |
 | `gateway.ldap.interceptor.<name>.remoteBaseDn` | N/A | **Required**. The base DN of the remote LDAP server. |
 | `gateway.ldap.interceptor.<name>.systemUsername` | N/A | Bind DN for the remote server (alias: `bindDn`). |
@@ -276,6 +277,8 @@ The proxy backend delegates lookups to a remote LDAP or Active Directory server.
 | `gateway.ldap.interceptor.<name>.maxResultSetSize` | `0` | Maximum number of results to return from a search, regardless of paging. 0 means unlimited. |
 
 NOTE: If this value is undefined and the interceptor was created by the KnoxLDAPServerManager, the KnoxLDAPServerManager will set the `gateway.ldap.interceptor.<name>.maxResultSetSize` value to be 1 greater than the proxy's `gateway.ldap.max.size.limit` configuration. This will ensure that the proxy returns a "Size limit exceeded" result if the backend has more results than the proxy's limit.
+
+NOTE: `verifyHostname` applies only to an LDAPS backend (an `ldaps://` URL). It governs the TLS endpoint-identity check, which is independent of certificate-chain/trust validation: with `verifyHostname=false` Knox still rejects a certificate that does not chain to a trusted CA, but accepts one whose hostname/SAN does not match the address dialed. Connecting to a backend by IP can fail the check even when the certificate lists that IP as a SAN, because the TLS stack may verify against the reverse-DNS (PTR) name of the address rather than the IP literal; prefer connecting by a hostname the certificate asserts, and reserve `verifyHostname=false` for cases where that is not possible.
 
 ##### Credential store aliases for backend passwords
 
